@@ -66,6 +66,7 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 | --- | --- |
 | `server/index.js` | Creates and starts the HTTP server |
 | `server/app.js` | Environment-independent API handler used locally and by Vercel |
+| `api/router.js` | Vercel Function entry point for all `/api/*` routes |
 | `server/api-router.js` | Dispatches API requests to focused route modules |
 | `server/routes/chat.js` | Saves messages and streams study answers |
 | `server/routes/conversations.js` | Conversation listing, creation and deletion |
