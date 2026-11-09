@@ -52,7 +52,7 @@ export function createLocalReply(question, subjectName, topics = []) {
         const sectionWords = words(item.title);
         return [...sectionWords].some(word => normalized.includes(word));
     }) || best.topic.sections[0];
-    return `${best.topic.title}\n\n${section.text}\n\nRemember: ${best.topic.takeaway}`;
+    return `${best.topic.title}\n\n${section.text}\n\nRemember: ${best.topic.takeaway}${best.topic.source ? `\n\nSource: ${best.topic.source}` : ''}`;
 }
 
 async function* streamLocalReply(reply, signal) {

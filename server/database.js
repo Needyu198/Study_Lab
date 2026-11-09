@@ -62,12 +62,65 @@ export function migrate(db) {
             takeaway TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS resources (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            stored_path TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            include_in_study INTEGER NOT NULL DEFAULT 1,
+            processing_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS resource_chunks (
+            id TEXT PRIMARY KEY,
+            resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+            heading TEXT NOT NULL,
+            content TEXT NOT NULL,
+            location_label TEXT NOT NULL,
+            chunk_order INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS study_notes (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL,
+            resource_id TEXT REFERENCES resources(id) ON DELETE SET NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('draft', 'published', 'outdated')),
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS study_note_sections (
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL REFERENCES study_notes(id) ON DELETE CASCADE,
+            resource_chunk_id TEXT REFERENCES resource_chunks(id) ON DELETE SET NULL,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            section_order INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS study_artifacts (
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL REFERENCES study_notes(id) ON DELETE CASCADE,
+            artifact_type TEXT NOT NULL CHECK(artifact_type IN ('flashcard', 'question')),
+            data_json TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS conversations_owner_subject_idx
             ON conversations(user_id, subject_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS messages_conversation_created_idx
             ON messages(conversation_id, created_at);
         CREATE INDEX IF NOT EXISTS lessons_owner_subject_idx
             ON lessons(user_id, subject_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS resources_owner_subject_idx
+            ON resources(user_id, subject_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS study_notes_owner_subject_idx
+            ON study_notes(user_id, subject_id, updated_at DESC);
     `);
 }
 
@@ -157,4 +210,112 @@ export function listLessons(db, userId, subjectId) {
             const { sectionsJson, ...lesson } = row;
             return { ...lesson, sections: JSON.parse(sectionsJson), questions: [], cards: [], group: 'Uploaded lessons' };
         });
+}
+
+export function createResourceAndNote(db, { resource, chunks, note }) {
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        db.prepare(`INSERT INTO resources
+            (id, user_id, subject_id, filename, stored_path, resource_type, mime_type, byte_size, status, include_in_study, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', 1, ?, ?)`).run(resource.id, resource.userId, resource.subjectId, resource.filename, resource.storedPath, resource.resourceType, resource.mimeType, resource.byteSize, now, now);
+        const addChunk = db.prepare(`INSERT INTO resource_chunks
+            (id, resource_id, heading, content, location_label, chunk_order) VALUES (?, ?, ?, ?, ?, ?)`);
+        const addSection = db.prepare(`INSERT INTO study_note_sections
+            (id, note_id, resource_chunk_id, title, content, section_order) VALUES (?, ?, ?, ?, ?, ?)`);
+        db.prepare(`INSERT INTO study_notes
+            (id, user_id, subject_id, resource_id, title, summary, status, version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)`).run(note.id, resource.userId, resource.subjectId, resource.id, note.title, note.summary, now, now);
+        chunks.forEach((chunk, index) => {
+            addChunk.run(chunk.id, resource.id, chunk.heading, chunk.content, chunk.locationLabel, index);
+            addSection.run(`section-${randomUUID()}`, note.id, chunk.id, chunk.heading, chunk.content, index);
+        });
+        db.exec('COMMIT');
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
+    return getStudyNote(db, resource.userId, note.id);
+}
+
+export function listResources(db, userId, subjectId) {
+    return db.prepare(`SELECT id, subject_id AS subjectId, filename, resource_type AS resourceType,
+        mime_type AS mimeType, byte_size AS byteSize, status, include_in_study AS includeInStudy,
+        processing_error AS processingError, created_at AS createdAt, updated_at AS updatedAt
+        FROM resources WHERE user_id = ? AND subject_id = ? ORDER BY created_at DESC`).all(userId, subjectId).map(row => ({ ...row, includeInStudy: Boolean(row.includeInStudy) }));
+}
+
+export function listStudyNotes(db, userId, subjectId, status = null) {
+    const rows = status
+        ? db.prepare('SELECT * FROM study_notes WHERE user_id = ? AND subject_id = ? AND status = ? ORDER BY updated_at DESC').all(userId, subjectId, status)
+        : db.prepare('SELECT * FROM study_notes WHERE user_id = ? AND subject_id = ? ORDER BY updated_at DESC').all(userId, subjectId);
+    return rows.map(row => getStudyNote(db, userId, row.id));
+}
+
+export function getStudyNote(db, userId, noteId) {
+    const row = db.prepare(`SELECT id, subject_id AS subjectId, resource_id AS resourceId, title, summary,
+        status, version, created_at AS createdAt, updated_at AS updatedAt
+        FROM study_notes WHERE id = ? AND user_id = ?`).get(noteId, userId);
+    if (!row) return undefined;
+    const sections = db.prepare(`SELECT study_note_sections.id, study_note_sections.resource_chunk_id AS resourceChunkId,
+        study_note_sections.title, study_note_sections.content, study_note_sections.section_order AS sectionOrder,
+        resources.filename AS sourceFilename, resource_chunks.location_label AS sourceLocation
+        FROM study_note_sections
+        LEFT JOIN resource_chunks ON resource_chunks.id = study_note_sections.resource_chunk_id
+        LEFT JOIN resources ON resources.id = resource_chunks.resource_id
+        WHERE study_note_sections.note_id = ? ORDER BY study_note_sections.section_order`).all(noteId);
+    const artifacts = db.prepare('SELECT id, artifact_type AS type, data_json AS dataJson FROM study_artifacts WHERE note_id = ?').all(noteId).map(item => ({ id: item.id, type: item.type, ...JSON.parse(item.dataJson) }));
+    return { ...row, sections, artifacts };
+}
+
+export function updateStudyNote(db, userId, noteId, { title, summary, sections }) {
+    const existing = getStudyNote(db, userId, noteId);
+    if (!existing || existing.status === 'published') return undefined;
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        db.prepare('UPDATE study_notes SET title = ?, summary = ?, updated_at = ? WHERE id = ? AND user_id = ?').run(title, summary, now, noteId, userId);
+        const updateSection = db.prepare('UPDATE study_note_sections SET title = ?, content = ? WHERE id = ? AND note_id = ?');
+        for (const section of sections) updateSection.run(section.title, section.content, section.id, noteId);
+        db.exec('COMMIT');
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
+    return getStudyNote(db, userId, noteId);
+}
+
+export function publishStudyNote(db, userId, noteId) {
+    const note = getStudyNote(db, userId, noteId);
+    if (!note) return undefined;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        db.prepare("UPDATE study_notes SET status = 'published', updated_at = ? WHERE id = ? AND user_id = ?").run(new Date().toISOString(), noteId, userId);
+        db.prepare('DELETE FROM study_artifacts WHERE note_id = ?').run(noteId);
+        const add = db.prepare('INSERT INTO study_artifacts (id, note_id, artifact_type, data_json) VALUES (?, ?, ?, ?)');
+        for (const section of note.sections) {
+            const answer = section.content.split(/(?<=[.!?])\s+/)[0].slice(0, 500);
+            add.run(`artifact-${randomUUID()}`, noteId, 'flashcard', JSON.stringify({ question: `What should you remember about ${section.title}?`, answer, sectionId: section.id }));
+            add.run(`artifact-${randomUUID()}`, noteId, 'question', JSON.stringify({ prompt: `Explain ${section.title} in your own words.`, answer, sectionId: section.id }));
+        }
+        db.exec('COMMIT');
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
+    return getStudyNote(db, userId, noteId);
+}
+
+export function publishedNotesAsTopics(db, userId, subjectId) {
+    return listStudyNotes(db, userId, subjectId, 'published').map(note => ({
+        id: note.id,
+        title: note.title,
+        description: note.summary,
+        group: 'Published study notes',
+        sections: note.sections.map(section => ({ title: section.title, text: section.content })),
+        takeaway: `Based on the reviewed study note “${note.title}”.`,
+        source: `Published study note: ${note.title}`,
+        questions: [],
+        cards: []
+    }));
 }

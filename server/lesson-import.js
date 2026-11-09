@@ -1,10 +1,11 @@
 import { extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const textExtensions = new Set(['.txt', '.md', '.markdown', '.json', '.csv']);
 const archiveExtensions = new Set(['.docx', '.pptx']);
-export const acceptedLessonExtensions = [...textExtensions, ...archiveExtensions];
+export const acceptedLessonExtensions = [...textExtensions, ...archiveExtensions, '.pdf'];
 
 function decodeEntities(value) {
     return value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
@@ -34,6 +35,19 @@ async function extractPptx(buffer) {
     return output.join('\n\n');
 }
 
+async function extractPdf(buffer) {
+    const document = await getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+        const page = await document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const text = content.items.map(item => item.str).join(' ').replace(/\s+/g, ' ').trim();
+        if (text) pages.push(`Page ${pageNumber}\n${text}`);
+    }
+    if (!pages.length) throw new Error('This PDF has no selectable text. Use OCR for a scanned book.');
+    return pages.join('\n\n');
+}
+
 export async function extractLessonText(filename, buffer) {
     const extension = extname(filename).toLowerCase();
     if (!acceptedLessonExtensions.includes(extension)) throw new Error(`Unsupported file type. Use ${acceptedLessonExtensions.join(', ')}.`);
@@ -42,6 +56,7 @@ export async function extractLessonText(filename, buffer) {
     if (textExtensions.has(extension)) text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
     else if (extension === '.docx') text = await extractDocx(buffer);
     else if (extension === '.pptx') text = await extractPptx(buffer);
+    else if (extension === '.pdf') text = await extractPdf(buffer);
     text = text.replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
     if (text.length < 20) throw new Error('The file does not contain enough readable text to create a lesson.');
     return text.slice(0, 200000);

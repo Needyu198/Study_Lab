@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGuestSession, createImportedLesson, deleteConversation, insertMessage, listConversations, listLessons, openDatabase, ownedConversation, updateMessage, upsertConversation, userForSession } from '../server/database.js';
+import { createGuestSession, createImportedLesson, createResourceAndNote, deleteConversation, insertMessage, listConversations, listLessons, listStudyNotes, openDatabase, ownedConversation, publishStudyNote, publishedNotesAsTopics, updateMessage, upsertConversation, userForSession } from '../server/database.js';
 
 test('sessions resolve to their owning user', () => {
     const db = openDatabase(':memory:');
@@ -39,5 +39,26 @@ test('uploaded files create subject-scoped lessons', () => {
     createImportedLesson(db, { userId: first, subjectId: 'programming-languages', filename: 'compiler.md', mimeType: 'text/markdown', buffer: Buffer.from('# Compiler'), text: '# Compiler', lesson });
     assert.equal(listLessons(db, first, 'programming-languages')[0].sections[0].title, 'Parsing');
     assert.equal(listLessons(db, second, 'programming-languages').length, 0);
+    db.close();
+});
+
+test('published study notes become the trusted source and generate study artifacts', () => {
+    const db = openDatabase(':memory:');
+    const userId = createGuestSession(db, 'resource-owner').userId;
+    const created = createResourceAndNote(db, {
+        resource: { id: 'resource-1', userId, subjectId: 'networks', filename: 'networks.pptx', storedPath: '/safe/networks.pptx', resourceType: 'powerpoint', mimeType: 'application/pptx', byteSize: 1200 },
+        chunks: [{ id: 'chunk-1', heading: 'Consensus', content: 'Consensus allows nodes to agree on shared state.', locationLabel: 'Slide 8' }],
+        note: { id: 'note-1', title: 'Distributed consensus', summary: 'How nodes agree.' }
+    });
+    assert.equal(created.status, 'draft');
+    assert.equal(created.sections[0].sourceLocation, 'Slide 8');
+    assert.equal(publishedNotesAsTopics(db, userId, 'networks').length, 0);
+
+    const published = publishStudyNote(db, userId, created.id);
+    assert.equal(published.status, 'published');
+    assert.equal(published.artifacts.filter(item => item.type === 'flashcard').length, 1);
+    assert.equal(published.artifacts.filter(item => item.type === 'question').length, 1);
+    assert.equal(publishedNotesAsTopics(db, userId, 'networks')[0].source, 'Published study note: Distributed consensus');
+    assert.equal(listStudyNotes(db, userId, 'networks').length, 1);
     db.close();
 });

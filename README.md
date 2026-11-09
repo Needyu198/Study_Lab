@@ -31,7 +31,8 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 - Export each complete photo, or reviewed editable title/body text beside its source photo. Long editable content is split across slides.
 - Separate automatic photo/text drafts for each subject.
 - A per-subject Study Chat with saved conversations, streaming responses, retry/stop controls and lesson-grounded answers.
-- Lesson import from `.txt`, Markdown, JSON, CSV, Word (`.docx`) and PowerPoint (`.pptx`) files. Imported source files and generated lesson sections are stored in SQLite and become available to Study Chat immediately.
+- A subject Resource Library for PDF books, Word documents, PowerPoints, Markdown, text, JSON and CSV. Original files are stored under `data/uploads`; structured metadata, chunks and notes live in SQLite.
+- Reviewable study-note drafts with page/slide citations, publishing, and generated flashcards and practice prompts. Study Chat prioritizes published notes.
 - Existing Programming Languages lessons, Myanmar explanations, flashcards, questions, comparisons and progress tracking.
 
 ## How to use
@@ -59,23 +60,43 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 | `src/lib/study-path.js` | Selection of the next unreviewed topic |
 | `public/ocr/` | Bundled OCR worker, WebAssembly cores and language data |
 
+### Backend source layout
+
+| File | Purpose |
+| --- | --- |
+| `server/index.js` | Creates and starts the HTTP server |
+| `server/api-router.js` | Dispatches API requests to focused route modules |
+| `server/routes/chat.js` | Saves messages and streams study answers |
+| `server/routes/conversations.js` | Conversation listing, creation and deletion |
+| `server/routes/lessons.js` | Lesson listing and file-import endpoint |
+| `server/routes/resources.js` | Subject source-library upload and listing |
+| `server/routes/study-notes.js` | Note editing, review and publishing |
+| `server/database.js` | SQLite schema and persistence operations |
+| `server/lesson-import.js` | PDF, text, Word and PowerPoint extraction |
+| `server/resource-service.js` | Physical file storage, chunking and draft-note creation |
+| `server/session.js` | Anonymous HTTP-only session handling |
+| `server/rate-limit.js` | Per-session message rate limiting |
+| `server/static-files.js` | Production frontend asset serving |
+| `server/http.js` | Shared JSON, validation and error helpers |
+
 ## Storage and scope
 
 Subject names, progress and preferences remain in browser localStorage, and photo drafts use IndexedDB. Study Chat conversations are stored in `data/study-lab.sqlite` when the Node server is available and cached in localStorage for offline fallback. The server creates an anonymous, HTTP-only browser session and checks conversation ownership on every query. This edition does not provide named account sign-in or automatic cross-device identity. Keep downloaded presentations as backups; clearing browser site data removes local progress and drafts. Previously selected base PowerPoint files must be selected again after a reload.
 
-Custom subjects have photo and presentation workspaces. The supplied guided lessons, flashcards and quizzes are specifically for Programming Languages; new subjects do not automatically get AI-generated study content. Add your own lesson data in `src/content.js` when extending the app.
+Every subject has Resources, Study Notes, Study Chat and Slide Studio. The supplied guided lessons remain available for Programming Languages. Custom subjects gain trusted study content by uploading resources, reviewing generated note drafts and publishing them.
 
-Study Chat answers are selected from `src/content.js` by the backend and streamed to the browser. It does not send chat text to a third party. The main API routes are `GET/POST /api/conversations`, `DELETE /api/conversations/:id`, `POST /api/chat`, `GET /api/session` and `GET /api/health`. Set `DATABASE_PATH` to move the SQLite file, `PORT` to change the API port, and `VITE_API_URL` only when the frontend and backend use different public API paths. Keep any future AI-provider key on the server—never place it in a `VITE_` variable.
+Study Chat searches published study notes first and streams the supported answer to the browser. Draft notes are deliberately excluded. If a subject has no published note, Programming Languages can fall back to its built-in content; custom subjects require a published note. No chat or resource text is sent to a third party. Set `DATABASE_PATH`, `UPLOADS_DIRECTORY`, `PORT` or `VITE_API_URL` only when their defaults do not fit the deployment.
 
-### Import a lesson
+### Resource-to-study workflow
 
-1. Start the app with `npm run dev` and open **Study chat**.
-2. Click **Import lesson** and choose a `.txt`, `.md`, `.markdown`, `.json`, `.csv`, `.docx` or `.pptx` file up to 10 MB.
-3. The server extracts readable text, uses Markdown headings or PowerPoint slides as sections, and splits long unstructured notes into smaller parts.
-4. The original file, extracted text and structured lesson are saved in `data/study-lab.sqlite` under the current anonymous user and subject.
-5. Ask Study Chat about the imported material. Uploaded lessons are searched together with built-in lessons.
+1. Start the app with `npm run dev`, select a subject and open **Resources**.
+2. Upload a text-based PDF, `.txt`, `.md`, `.json`, `.csv`, `.docx` or `.pptx` file up to 10 MB.
+3. The original file is saved under `data/uploads/<user>/<subject>/<resource>/`. Extracted page, slide or section chunks are stored in SQLite.
+4. Study Lab creates a draft under **Study notes**. Review and edit its overview and sections; each section displays its source file and page, slide or section label.
+5. Publish the reviewed note. Publishing creates flashcards and practice prompts derived from that version.
+6. Study Chat now uses the published note as its trusted subject context and identifies that note in its answer.
 
-Scanned PDFs and image-only Word or PowerPoint documents are not supported by this importer because they require OCR. Convert them to text or use Slide Studio's OCR workflow first.
+Scanned PDFs and image-only Word or PowerPoint documents require OCR. The importer reports that no selectable text was found; convert them to text or use Slide Studio's OCR workflow first.
 
 OCR is text recognition, not generative AI. Review results, especially equations, code, handwriting and unclear photos. Diagrams stay inside the source photo; they are not converted to editable shapes. English and Myanmar models are bundled, with no OCR API key required. Fonts optionally load from Google Fonts; system fonts are used if unavailable. Install Myanmar fonts locally for best PowerPoint rendering.
 
