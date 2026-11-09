@@ -40,10 +40,34 @@ export function migrate(db) {
             status TEXT NOT NULL CHECK(status IN ('streaming', 'complete', 'failed', 'stopped')),
             created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS uploaded_files (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            file_data BLOB NOT NULL,
+            extracted_text TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS lessons (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL,
+            file_id TEXT REFERENCES uploaded_files(id) ON DELETE SET NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            sections_json TEXT NOT NULL,
+            takeaway TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS conversations_owner_subject_idx
             ON conversations(user_id, subject_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS messages_conversation_created_idx
             ON messages(conversation_id, created_at);
+        CREATE INDEX IF NOT EXISTS lessons_owner_subject_idx
+            ON lessons(user_id, subject_id, created_at DESC);
     `);
 }
 
@@ -103,4 +127,34 @@ export function insertMessage(db, message) {
 export function updateMessage(db, id, conversationId, content, status) {
     db.prepare('UPDATE messages SET content = ?, status = ? WHERE id = ? AND conversation_id = ?').run(content, status, id, conversationId);
     db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), conversationId);
+}
+
+export function createImportedLesson(db, { userId, subjectId, filename, mimeType, buffer, text, lesson }) {
+    const fileId = `file-${randomUUID()}`;
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+        db.prepare(`INSERT INTO uploaded_files
+            (id, user_id, subject_id, filename, mime_type, byte_size, file_data, extracted_text, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(fileId, userId, subjectId, filename, mimeType, buffer.length, buffer, text, now);
+        db.prepare(`INSERT INTO lessons
+            (id, user_id, subject_id, file_id, title, description, sections_json, takeaway, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(lesson.id, userId, subjectId, fileId, lesson.title, lesson.description, JSON.stringify(lesson.sections), lesson.takeaway, now);
+        db.exec('COMMIT');
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
+    return { ...lesson, subjectId, filename, createdAt: now };
+}
+
+export function listLessons(db, userId, subjectId) {
+    return db.prepare(`SELECT lessons.id, lessons.subject_id AS subjectId, lessons.title, lessons.description,
+        lessons.sections_json AS sectionsJson, lessons.takeaway, lessons.created_at AS createdAt,
+        uploaded_files.filename
+        FROM lessons LEFT JOIN uploaded_files ON uploaded_files.id = lessons.file_id
+        WHERE lessons.user_id = ? AND lessons.subject_id = ? ORDER BY lessons.created_at DESC`).all(userId, subjectId).map(row => {
+            const { sectionsJson, ...lesson } = row;
+            return { ...lesson, sections: JSON.parse(sectionsJson), questions: [], cards: [], group: 'Uploaded lessons' };
+        });
 }

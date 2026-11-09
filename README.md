@@ -31,6 +31,7 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 - Export each complete photo, or reviewed editable title/body text beside its source photo. Long editable content is split across slides.
 - Separate automatic photo/text drafts for each subject.
 - A per-subject Study Chat with saved conversations, streaming responses, retry/stop controls and lesson-grounded answers.
+- Lesson import from `.txt`, Markdown, JSON, CSV, Word (`.docx`) and PowerPoint (`.pptx`) files. Imported source files and generated lesson sections are stored in SQLite and become available to Study Chat immediately.
 - Existing Programming Languages lessons, Myanmar explanations, flashcards, questions, comparisons and progress tracking.
 
 ## How to use
@@ -65,6 +66,16 @@ Subject names, progress and preferences remain in browser localStorage, and phot
 Custom subjects have photo and presentation workspaces. The supplied guided lessons, flashcards and quizzes are specifically for Programming Languages; new subjects do not automatically get AI-generated study content. Add your own lesson data in `src/content.js` when extending the app.
 
 Study Chat answers are selected from `src/content.js` by the backend and streamed to the browser. It does not send chat text to a third party. The main API routes are `GET/POST /api/conversations`, `DELETE /api/conversations/:id`, `POST /api/chat`, `GET /api/session` and `GET /api/health`. Set `DATABASE_PATH` to move the SQLite file, `PORT` to change the API port, and `VITE_API_URL` only when the frontend and backend use different public API paths. Keep any future AI-provider key on the server—never place it in a `VITE_` variable.
+
+### Import a lesson
+
+1. Start the app with `npm run dev` and open **Study chat**.
+2. Click **Import lesson** and choose a `.txt`, `.md`, `.markdown`, `.json`, `.csv`, `.docx` or `.pptx` file up to 10 MB.
+3. The server extracts readable text, uses Markdown headings or PowerPoint slides as sections, and splits long unstructured notes into smaller parts.
+4. The original file, extracted text and structured lesson are saved in `data/study-lab.sqlite` under the current anonymous user and subject.
+5. Ask Study Chat about the imported material. Uploaded lessons are searched together with built-in lessons.
+
+Scanned PDFs and image-only Word or PowerPoint documents are not supported by this importer because they require OCR. Convert them to text or use Slide Studio's OCR workflow first.
 
 OCR is text recognition, not generative AI. Review results, especially equations, code, handwriting and unclear photos. Diagrams stay inside the source photo; they are not converted to editable shapes. English and Myanmar models are bundled, with no OCR API key required. Fonts optionally load from Google Fonts; system fonts are used if unavailable. Install Myanmar fonts locally for best PowerPoint rendering.
 

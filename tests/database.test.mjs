@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGuestSession, deleteConversation, insertMessage, listConversations, openDatabase, ownedConversation, updateMessage, upsertConversation, userForSession } from '../server/database.js';
+import { createGuestSession, createImportedLesson, deleteConversation, insertMessage, listConversations, listLessons, openDatabase, ownedConversation, updateMessage, upsertConversation, userForSession } from '../server/database.js';
 
 test('sessions resolve to their owning user', () => {
     const db = openDatabase(':memory:');
@@ -28,5 +28,16 @@ test('conversation queries enforce ownership and include messages', () => {
     assert.equal(listConversations(db, second, 'programming-languages').length, 0);
     assert.equal(deleteConversation(db, 'chat-1', second), false);
     assert.equal(deleteConversation(db, 'chat-1', first), true);
+    db.close();
+});
+
+test('uploaded files create subject-scoped lessons', () => {
+    const db = openDatabase(':memory:');
+    const first = createGuestSession(db, 'lesson-owner').userId;
+    const second = createGuestSession(db, 'other-owner').userId;
+    const lesson = { id: 'lesson-1', title: 'Compiler notes', description: 'How compilation works.', sections: [{ title: 'Parsing', text: 'Parsing creates a syntax tree.' }], takeaway: 'A compiler has multiple stages.' };
+    createImportedLesson(db, { userId: first, subjectId: 'programming-languages', filename: 'compiler.md', mimeType: 'text/markdown', buffer: Buffer.from('# Compiler'), text: '# Compiler', lesson });
+    assert.equal(listLessons(db, first, 'programming-languages')[0].sections[0].title, 'Parsing');
+    assert.equal(listLessons(db, second, 'programming-languages').length, 0);
     db.close();
 });

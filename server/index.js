@@ -5,7 +5,8 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLocalReply } from '../src/lib/chat-service.js';
 import { topics } from '../src/content.js';
-import { createGuestSession, deleteConversation, insertMessage, listConversations, openDatabase, ownedConversation, updateMessage, upsertConversation, userForSession } from './database.js';
+import { createGuestSession, createImportedLesson, deleteConversation, insertMessage, listConversations, listLessons, openDatabase, ownedConversation, updateMessage, upsertConversation, userForSession } from './database.js';
+import { acceptedLessonExtensions, importLessonFile } from './lesson-import.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const distDirectory = resolve(__dirname, '../dist');
@@ -97,6 +98,25 @@ async function handleApi(req, res, url) {
         return deleted ? json(res, 200, { deleted: true }, headers) : json(res, 404, { error: 'Conversation not found.' }, headers);
     }
 
+    if (url.pathname === '/api/lessons' && req.method === 'GET') {
+        const subjectId = url.searchParams.get('subjectId');
+        if (!validText(subjectId, 128)) return json(res, 400, { error: 'A valid subjectId is required.' }, headers);
+        return json(res, 200, { lessons: listLessons(db, user.id, subjectId) }, headers);
+    }
+
+    if (url.pathname === '/api/lessons/import' && req.method === 'POST') {
+        const body = await readJson(req, 15_000_000);
+        if (!validText(body.subjectId, 128) || !validText(body.filename, 255) || !validText(body.base64, 14_000_000))
+            return json(res, 400, { error: 'subjectId, filename and file data are required.' }, headers);
+        try {
+            const imported = await importLessonFile(body.filename, body.base64);
+            const lesson = createImportedLesson(db, { userId: user.id, subjectId: body.subjectId, filename: body.filename, mimeType: String(body.mimeType || 'application/octet-stream').slice(0, 150), ...imported });
+            return json(res, 201, { lesson }, headers);
+        } catch (error) {
+            return json(res, 400, { error: error.message, acceptedExtensions: acceptedLessonExtensions }, headers);
+        }
+    }
+
     if (url.pathname === '/api/chat' && req.method === 'POST') {
         if (rateLimited(user.id)) return json(res, 429, { error: 'Too many messages. Please wait a minute.' }, headers);
         const body = await readJson(req);
@@ -112,7 +132,8 @@ async function handleApi(req, res, url) {
         insertMessage(db, { id: userMessageId, conversationId: conversation.id, role: 'user', content: body.content.trim(), status: 'complete', createdAt: now });
         insertMessage(db, { id: assistantMessageId, conversationId: conversation.id, role: 'assistant', content: '', status: 'streaming', createdAt: now });
 
-        const courseTopics = body.subjectId === 'programming-languages' ? topics : [];
+        const uploadedLessons = listLessons(db, user.id, body.subjectId);
+        const courseTopics = body.subjectId === 'programming-languages' ? [...topics, ...uploadedLessons] : uploadedLessons;
         const reply = createLocalReply(body.content, body.subjectName || body.subjectId, courseTopics);
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...headers });
         let sent = '';
