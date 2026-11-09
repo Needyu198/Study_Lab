@@ -30,6 +30,7 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 - English and Myanmar text extraction with locally hosted OCR assets.
 - Export each complete photo, or reviewed editable title/body text beside its source photo. Long editable content is split across slides.
 - Separate automatic photo/text drafts for each subject.
+- A per-subject Study Chat with saved conversations, streaming responses, retry/stop controls and lesson-grounded answers.
 - Existing Programming Languages lessons, Myanmar explanations, flashcards, questions, comparisons and progress tracking.
 
 ## How to use
@@ -62,6 +63,8 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 This downloadable edition saves subject names, progress and preferences in browser localStorage, and photo drafts in IndexedDB. It does not sign in, sync across devices, or use the hosted website's database. Keep downloaded presentations as backups; clearing browser site data removes local progress and drafts. Previously selected base PowerPoint files must be selected again after a reload.
 
 Custom subjects have photo and presentation workspaces. The supplied guided lessons, flashcards and quizzes are specifically for Programming Languages; new subjects do not automatically get AI-generated study content. Add your own lesson data in `src/content.js` when extending the app.
+
+Study Chat runs in local lesson mode by default: Programming Languages answers are selected from `src/content.js`, and conversations are saved in localStorage. It does not send chat text to a third party. To connect a hosted AI service, set `VITE_CHAT_API_URL` to a server endpoint that accepts `{ content, subjectId, messages }` and returns a streamed text response. Keep AI provider keys on that server—never place them in a `VITE_` variable.
 
 OCR is text recognition, not generative AI. Review results, especially equations, code, handwriting and unclear photos. Diagrams stay inside the source photo; they are not converted to editable shapes. English and Myanmar models are bundled, with no OCR API key required. Fonts optionally load from Google Fonts; system fonts are used if unavailable. Install Myanmar fonts locally for best PowerPoint rendering.
 
