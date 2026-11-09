@@ -1,4 +1,5 @@
-import { handleUpload } from '@vercel/blob/client';
+import { issueSignedToken } from '@vercel/blob';
+import { handleUploadPresigned } from '@vercel/blob/client';
 import { createPostgresRepository } from '../server/postgres-repository.js';
 import { createSessionService } from '../server/session.js';
 import { readJson, sendJson, validText } from '../server/http.js';
@@ -19,10 +20,10 @@ export default async function blobUpload(req, res) {
     let sessionCookie = null;
     try {
         const body = req.body && typeof req.body === 'object' ? req.body : await readJson(req, 20_000);
-        const result = await handleUpload({
+        const result = await handleUploadPresigned({
             request: req,
             body,
-            onBeforeGenerateToken: async (pathname, clientPayload) => {
+            getSignedToken: async (pathname, clientPayload) => {
                 const payload = JSON.parse(clientPayload || '{}');
                 if (!validText(payload.subjectId, 128) || !validText(payload.filename, 255)) throw new Error('Invalid upload details.');
                 const extension = extname(payload.filename).toLowerCase();
@@ -31,10 +32,15 @@ export default async function blobUpload(req, res) {
                 sessionCookie = cookie;
                 const prefix = `resources/${safeSegment(user.id)}/${safeSegment(payload.subjectId)}/`;
                 if (!pathname.startsWith(prefix) || !pathname.endsWith(extension)) throw new Error('The upload path does not match the resource.');
+                const validUntil = Date.now() + 15 * 60 * 1000;
                 return {
-                    maximumSizeInBytes,
-                    addRandomSuffix: true,
-                    tokenPayload: JSON.stringify({ userId: user.id, subjectId: payload.subjectId, filename: payload.filename })
+                    token: await issueSignedToken({ pathname, operations: ['put'], maximumSizeInBytes, validUntil }),
+                    urlOptions: {
+                        maximumSizeInBytes,
+                        validUntil,
+                        allowOverwrite: false,
+                        tokenPayload: JSON.stringify({ userId: user.id, subjectId: payload.subjectId, filename: payload.filename })
+                    }
                 };
             },
             onUploadCompleted: async () => {}

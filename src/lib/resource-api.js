@@ -1,4 +1,4 @@
-import { upload } from '@vercel/blob/client';
+import { uploadPresigned } from '@vercel/blob/client';
 
 const root = () => (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 const useBlobUploads = () => import.meta.env.VITE_BLOB_UPLOADS === 'true';
@@ -25,7 +25,7 @@ export async function importResource(subjectId, file, onProgress) {
     if (useBlobUploads()) {
         const { user } = await request('/session');
         const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-        const blob = await upload(`resources/${safeSegment(user.id)}/${safeSegment(subjectId)}/resource-${crypto.randomUUID()}${extension}`, file, {
+        const blob = await uploadPresigned(`resources/${safeSegment(user.id)}/${safeSegment(subjectId)}/resource-${crypto.randomUUID()}${extension}`, file, {
             access: 'private',
             handleUploadUrl: '/api/blob-upload',
             clientPayload: JSON.stringify({ subjectId, filename: file.name }),

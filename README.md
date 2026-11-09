@@ -133,7 +133,7 @@ DATABASE_URL='postgresql://…' npm run db:migrate
 
 ### 3. Add private Blob storage
 
-Create a Vercel Blob store and connect it to the project. Confirm that `BLOB_READ_WRITE_TOKEN` is available. The application requests a short-lived upload token from `/api/blob-upload`, uploads directly from the browser, and then calls `/api/resources/process`. The source file never passes through the 4.5 MB Function request body.
+Create a private Vercel Blob store and connect it to the project with OIDC credentials. Confirm that `BLOB_STORE_ID` and `BLOB_WEBHOOK_PUBLIC_KEY` are available. The application requests a short-lived presigned upload from `/api/blob-upload`, uploads directly from the browser, and then calls `/api/resources/process`. No persistent Blob read-write token is required, and the source file never passes through the Function request body.
 
 ### 4. Add frontend environment configuration
 
