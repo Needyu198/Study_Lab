@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {nextUnreviewed} from '../src/lib/study-path.js';
+import {topics} from '../src/content.js';
+test('fresh session starts at the first topic',()=>assert.equal(nextUnreviewed(topics,{}).id,'history'));
+test('resumed session skips reviewed lessons even out of order',()=>assert.equal(nextUnreviewed(topics,{'topic:history':1,'topic:roles':1,'topic:ambiguity':1}).id,'natural'));
+test('mark and continue skips the current topic and all previously reviewed topics',()=>assert.equal(nextUnreviewed(topics,{'topic:roles':1,'topic:natural':1},'history').id,'ambiguity'));
+test('all reviewed has no repeated lesson',()=>assert.equal(nextUnreviewed(topics,Object.fromEntries(topics.map(t=>[`topic:${t.id}`,1]))),undefined));
+test('marking a topic unreviewed returns it to the path',()=>assert.equal(nextUnreviewed(topics,{'topic:history':0,'topic:roles':1}).id,'history'));
+test('every topic has Myanmar content and valid answer keys',()=>{assert.equal(new Set(topics.map(t=>t.id)).size,11);for(const t of topics){assert.ok(t.myTitle);assert.ok(t.sections.every(s=>s.my));assert.equal(t.cards.length,2);assert.equal(t.questions.length,2);for(const q of t.questions){assert.ok(q.answer>=0&&q.answer<q.options.length);assert.ok(q.my)}}});
