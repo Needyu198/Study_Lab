@@ -1,7 +1,6 @@
 import { extname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const textExtensions = new Set(['.txt', '.md', '.markdown', '.json', '.csv']);
 const archiveExtensions = new Set(['.docx', '.pptx']);
@@ -36,6 +35,7 @@ async function extractPptx(buffer) {
 }
 
 async function extractPdf(buffer) {
+    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const document = await getDocument({ data: new Uint8Array(buffer), disableWorker: true }).promise;
     const pages = [];
     for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
