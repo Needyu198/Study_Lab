@@ -1,23 +1,22 @@
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { createApiRouter } from './api-router.js';
+import { createApiHandler } from './app.js';
 import { config } from './config.js';
 import { openDatabase } from './database.js';
 import { sendJson } from './http.js';
-import { createRateLimiter } from './rate-limit.js';
-import { createSessionService } from './session.js';
+import { createSqliteRepository } from './sqlite-repository.js';
 import { createStaticFileHandler } from './static-files.js';
 
 export function createStudyServer(options = {}) {
     const db = options.db || openDatabase();
-    const sessions = createSessionService(db, { secure: options.secure ?? config.production });
-    const routeApi = createApiRouter({ db, sessions, rateLimited: createRateLimiter() });
+    const repository = options.repository || createSqliteRepository(db);
+    const handleApi = createApiHandler({ repository, secure: options.secure ?? config.production, database: 'sqlite' });
     const serveStatic = createStaticFileHandler(options.distDirectory || config.distDirectory);
 
     return createServer(async (req, res) => {
         const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         try {
-            if (url.pathname.startsWith('/api/')) await routeApi(req, res, url);
+            if (url.pathname.startsWith('/api/')) await handleApi(req, res);
             else if (req.method === 'GET' || req.method === 'HEAD') await serveStatic(res, url.pathname);
             else sendJson(res, 405, { error: 'Method not allowed.' });
         } catch (error) {

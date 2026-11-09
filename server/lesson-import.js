@@ -115,7 +115,12 @@ export function buildLesson(filename, text) {
 export async function importLessonFile(filename, base64) {
     if (typeof base64 !== 'string' || !base64) throw new Error('File data is required.');
     const buffer = Buffer.from(base64, 'base64');
-    if (buffer.length > 10 * 1024 * 1024) throw new Error('The file is larger than the 10 MB lesson limit.');
+    return importLessonBuffer(filename, buffer, 10 * 1024 * 1024);
+}
+
+export async function importLessonBuffer(filename, buffer, maximumBytes = 50 * 1024 * 1024) {
+    if (!Buffer.isBuffer(buffer) || !buffer.length) throw new Error('File data is required.');
+    if (buffer.length > maximumBytes) throw new Error(`The file is larger than the ${Math.floor(maximumBytes / 1024 / 1024)} MB resource limit.`);
     const text = await extractLessonText(filename, buffer);
     return { buffer, text, lesson: buildLesson(filename, text) };
 }

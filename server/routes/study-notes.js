@@ -1,19 +1,18 @@
-import { listStudyNotes, publishStudyNote, updateStudyNote } from '../database.js';
 import { readJson, sendJson, validText } from '../http.js';
 
 export async function handleStudyNoteRoutes(req, res, url, context) {
-    const { db, user, headers } = context;
+    const { repository, user, headers } = context;
     if (url.pathname === '/api/study-notes' && req.method === 'GET') {
         const subjectId = url.searchParams.get('subjectId');
         if (!validText(subjectId, 128)) sendJson(res, 400, { error: 'A valid subjectId is required.' }, headers);
-        else sendJson(res, 200, { notes: listStudyNotes(db, user.id, subjectId) }, headers);
+        else sendJson(res, 200, { notes: await repository.listStudyNotes(user.id, subjectId) }, headers);
         return true;
     }
     const match = url.pathname.match(/^\/api\/study-notes\/([^/]+)(?:\/(publish))?$/);
     if (!match) return false;
     const noteId = decodeURIComponent(match[1]);
     if (req.method === 'POST' && match[2] === 'publish') {
-        const note = publishStudyNote(db, user.id, noteId);
+        const note = await repository.publishStudyNote(user.id, noteId);
         sendJson(res, note ? 200 : 404, note ? { note } : { error: 'Study note not found.' }, headers);
         return true;
     }
@@ -24,7 +23,7 @@ export async function handleStudyNoteRoutes(req, res, url, context) {
             sendJson(res, 400, { error: 'A valid title, summary and sections are required.' }, headers);
             return true;
         }
-        const note = updateStudyNote(db, user.id, noteId, body);
+        const note = await repository.updateStudyNote(user.id, noteId, body);
         sendJson(res, note ? 200 : 409, note ? { note } : { error: 'Only an existing draft note can be edited.' }, headers);
         return true;
     }

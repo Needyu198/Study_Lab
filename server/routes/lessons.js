@@ -1,14 +1,13 @@
-import { createImportedLesson, listLessons } from '../database.js';
 import { readJson, sendJson, validText } from '../http.js';
 import { acceptedLessonExtensions, importLessonFile } from '../lesson-import.js';
 
 export async function handleLessonRoutes(req, res, url, context) {
-    const { db, user, headers } = context;
+    const { repository, user, headers } = context;
 
     if (url.pathname === '/api/lessons' && req.method === 'GET') {
         const subjectId = url.searchParams.get('subjectId');
         if (!validText(subjectId, 128)) sendJson(res, 400, { error: 'A valid subjectId is required.' }, headers);
-        else sendJson(res, 200, { lessons: listLessons(db, user.id, subjectId) }, headers);
+        else sendJson(res, 200, { lessons: await repository.listLessons(user.id, subjectId) }, headers);
         return true;
     }
 
@@ -21,7 +20,7 @@ export async function handleLessonRoutes(req, res, url, context) {
     }
     try {
         const imported = await importLessonFile(body.filename, body.base64);
-        const lesson = createImportedLesson(db, {
+        const lesson = await repository.createImportedLesson({
             userId: user.id,
             subjectId: body.subjectId,
             filename: body.filename,

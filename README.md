@@ -1,6 +1,6 @@
 # Study Lab — React JavaScript source
 
-A React + Vite Study Lab application with a small Node.js API and SQLite database. All application code is JavaScript (`.js`) and JSX (`.jsx`); no TypeScript compilation is required.
+A React + Vite Study Lab application. Local development uses the included Node.js API and SQLite; Vercel production uses Functions, PostgreSQL and private Vercel Blob storage. All application code is JavaScript (`.js`) and JSX (`.jsx`); no TypeScript compilation is required.
 
 ## Start on your computer
 
@@ -65,13 +65,16 @@ The lockfile is included; use `npm ci` instead of `npm install` for an exact rep
 | File | Purpose |
 | --- | --- |
 | `server/index.js` | Creates and starts the HTTP server |
+| `server/app.js` | Environment-independent API handler used locally and by Vercel |
 | `server/api-router.js` | Dispatches API requests to focused route modules |
 | `server/routes/chat.js` | Saves messages and streams study answers |
 | `server/routes/conversations.js` | Conversation listing, creation and deletion |
 | `server/routes/lessons.js` | Lesson listing and file-import endpoint |
 | `server/routes/resources.js` | Subject source-library upload and listing |
 | `server/routes/study-notes.js` | Note editing, review and publishing |
-| `server/database.js` | SQLite schema and persistence operations |
+| `server/database.js` | Local SQLite schema and persistence operations |
+| `server/postgres-repository.js` | PostgreSQL persistence used by Vercel Functions |
+| `server/postgres-schema.sql` | Idempotent production database migration |
 | `server/lesson-import.js` | PDF, text, Word and PowerPoint extraction |
 | `server/resource-service.js` | Physical file storage, chunking and draft-note creation |
 | `server/session.js` | Anonymous HTTP-only session handling |
@@ -90,8 +93,8 @@ Study Chat searches published study notes first and streams the supported answer
 ### Resource-to-study workflow
 
 1. Start the app with `npm run dev`, select a subject and open **Resources**.
-2. Upload a text-based PDF, `.txt`, `.md`, `.json`, `.csv`, `.docx` or `.pptx` file up to 10 MB.
-3. The original file is saved under `data/uploads/<user>/<subject>/<resource>/`. Extracted page, slide or section chunks are stored in SQLite.
+2. Upload a text-based PDF, `.txt`, `.md`, `.json`, `.csv`, `.docx` or `.pptx` file. Local uploads support 10 MB; Vercel Blob uploads support 50 MB.
+3. Locally, the original is saved under `data/uploads/<user>/<subject>/<resource>/`. On Vercel, the browser uploads directly to a private Blob path under `resources/<user>/<subject>/`. Extracted page, slide or section chunks are stored in SQLite locally or PostgreSQL in production.
 4. Study Lab creates a draft under **Study notes**. Review and edit its overview and sections; each section displays its source file and page, slide or section label.
 5. Publish the reviewed note. Publishing creates flashcards and practice prompts derived from that version.
 6. Study Chat now uses the published note as its trusted subject context and identifies that note in its answer.
@@ -102,7 +105,58 @@ OCR is text recognition, not generative AI. Review results, especially equations
 
 Limits: 40 photos per batch, 15 MB per photo, 40 MB for a base PowerPoint, and 200 MB for its uncompressed package. Uploaded photos are resized to a maximum dimension of 2200 px.
 
-## Hosting
+## Deploy to Vercel
+
+The production architecture is:
+
+```text
+Browser (Vite React)
+  ├── small API requests → Vercel Functions → PostgreSQL
+  └── source file upload → private Vercel Blob
+                                  └── processing Function → resource chunks + draft note
+```
+
+### 1. Create the Vercel project
+
+Push this folder to a Git repository, import it at Vercel, and keep the detected framework as **Vite**. The included `vercel.json` runs the PostgreSQL migration and then builds `dist`.
+
+### 2. Add PostgreSQL
+
+In the Vercel project, open **Storage / Marketplace**, add a PostgreSQL provider such as Neon, and connect it to all environments that should run Study Lab. Confirm that the integration creates a `DATABASE_URL` environment variable. The build command runs `npm run db:migrate`; the migration is idempotent and creates users, sessions, resources, chunks, study notes, artifacts and chats.
+
+To run the same migration manually:
+
+```bash
+DATABASE_URL='postgresql://…' npm run db:migrate
+```
+
+### 3. Add private Blob storage
+
+Create a Vercel Blob store and connect it to the project. Confirm that `BLOB_READ_WRITE_TOKEN` is available. The application requests a short-lived upload token from `/api/blob-upload`, uploads directly from the browser, and then calls `/api/resources/process`. The source file never passes through the 4.5 MB Function request body.
+
+### 4. Add frontend environment configuration
+
+Add this variable for Production (and Preview if previews should use cloud storage):
+
+```ini
+VITE_BLOB_UPLOADS=true
+```
+
+Do not add `VITE_API_URL` for the standard same-domain Vercel deployment. The frontend will call `/api` on its own domain, which also allows the anonymous HTTP-only session cookie to work.
+
+### 5. Deploy and verify
+
+Deploy, then check these in order:
+
+1. Open `/api/health`; it should return `{"status":"ok","database":"postgresql"}`.
+2. Create or select a subject and upload a small text or Markdown file.
+3. Confirm the source appears in **Resources** and a draft appears in **Study notes**.
+4. Edit and publish the note.
+5. Ask a question in **Study chat** and confirm its answer identifies the published note as its source.
+
+Required production variables are summarized in `.env.example`. Vercel supplies `NODE_ENV` and deployment metadata automatically. Anonymous sessions are stored in PostgreSQL, so redeploying does not erase them; clearing the browser cookie creates a new anonymous library.
+
+## Traditional Node hosting
 
 Build with `npm run build`, then run `npm start`. The Node server serves the `dist` directory and API together. In production, place it behind an HTTPS reverse proxy and persist the `data` directory. The app uses absolute `/ocr/` asset paths. For deployment under a subdirectory, update the Vite base setting, HTML asset URLs and OCR paths in `src/SlideStudio.jsx` together.
 

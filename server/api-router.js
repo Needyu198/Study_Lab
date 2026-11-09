@@ -5,15 +5,15 @@ import { handleLessonRoutes } from './routes/lessons.js';
 import { handleResourceRoutes } from './routes/resources.js';
 import { handleStudyNoteRoutes } from './routes/study-notes.js';
 
-export function createApiRouter({ db, sessions, rateLimited }) {
+export function createApiRouter({ repository, sessions, rateLimited, database = 'sqlite' }) {
     return async function routeApi(req, res, url) {
         if (url.pathname === '/api/health' && req.method === 'GET') {
-            sendJson(res, 200, { status: 'ok', database: 'sqlite' });
+            sendJson(res, 200, { status: 'ok', database });
             return;
         }
 
-        const { user, cookie } = sessions.resolve(req);
-        const context = { db, user, rateLimited, headers: cookie ? { 'Set-Cookie': cookie } : {} };
+        const { user, cookie } = await sessions.resolve(req);
+        const context = { repository, user, rateLimited, headers: cookie ? { 'Set-Cookie': cookie } : {} };
 
         if (url.pathname === '/api/session' && req.method === 'GET') {
             sendJson(res, 200, { user }, context.headers);
