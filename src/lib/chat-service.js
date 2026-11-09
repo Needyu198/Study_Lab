@@ -87,9 +87,10 @@ async function* streamRemoteReply(endpoint, payload, signal) {
     }
 }
 
-export function streamStudyReply({ question, subjectId, subjectName, messages, topics, signal }) {
-    const endpoint = import.meta.env.VITE_CHAT_API_URL?.trim();
-    if (endpoint)
-        return streamRemoteReply(endpoint, { content: question, subjectId, messages }, signal);
+export function streamStudyReply({ question, subjectId, subjectName, conversationId, title, userMessageId, assistantMessageId, messages, topics, signal, useServer }) {
+    if (useServer) {
+        const root = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+        return streamRemoteReply(`${root}/chat`, { content: question, subjectId, subjectName, conversationId, title, userMessageId, assistantMessageId, messages }, signal);
+    }
     return streamLocalReply(createLocalReply(question, subjectName, topics), signal);
 }
